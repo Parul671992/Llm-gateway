@@ -5,3 +5,8 @@ spring:
     redis:
       host: host.docker.internal
       port: 6379
+
+groq:
+  api-key: ${GROQ_API_KEY}
+  base-url: https://api.groq.com/openai/v1
+  model: openai/gpt-oss-20b
