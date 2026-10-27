@@ -1,3 +1,7 @@
 spring:
   application:
     name: llmgateway
+  data:
+    redis:
+      host: host.docker.internal
+      port: 6379
