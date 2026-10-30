@@ -7,20 +7,20 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class AskController {
 
-    private final GroqClient groqClient;
+    private final AskService askService;
 
-    public AskController(GroqClient groqClient) {
-        this.groqClient = groqClient;
+    public AskController(AskService askService) {
+        this.askService = askService;
     }
 
     @GetMapping("/ask")
     public AskResponse ask(@RequestParam String question) {
         long start = System.currentTimeMillis();
 
-        String answer = groqClient.ask(question);
+        AskService.AskResult result = askService.ask(question);
 
         long timeTakenMs = System.currentTimeMillis() - start;
-        return new AskResponse(question, answer, "llm", timeTakenMs);
+        return new AskResponse(question, result.answer(), result.source(), timeTakenMs);
     }
 
     public record AskResponse(String question, String answer, String source, long timeTakenMs) {}
