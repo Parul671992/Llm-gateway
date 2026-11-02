@@ -1,10 +1,13 @@
 package com.parul.llmgateway;
 
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -16,9 +19,20 @@ public class GroqClient {
 
     public GroqClient(@Value("${groq.base-url}") String baseUrl,
                       @Value("${groq.api-key}") String apiKey,
-                      @Value("${groq.model}") String model) {
+                      @Value("${groq.model}") String model,
+                      @Value("${groq.connect-timeout}") Duration connectTimeout,
+                      @Value("${groq.read-timeout}") Duration readTimeout) {
+
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(connectTimeout)
+                .build();
+
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
+        requestFactory.setReadTimeout(readTimeout);
+
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
+                .requestFactory(requestFactory)
                 .defaultHeader("Authorization", "Bearer " + apiKey)
                 .build();
         this.model = model;
@@ -35,6 +49,10 @@ public class GroqClient {
                 .body(ChatResponse.class);
 
         return response.choices().get(0).message().content();
+    }
+
+    public String model() {
+        return model;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

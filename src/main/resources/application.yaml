@@ -5,8 +5,28 @@ spring:
     redis:
       host: host.docker.internal
       port: 6379
+      timeout: 2s
+      connect-timeout: 2s
 
 groq:
   api-key: ${GROQ_API_KEY}
   base-url: https://api.groq.com/openai/v1
   model: openai/gpt-oss-20b
+  connect-timeout: 2s
+  read-timeout: 30s
+
+gateway:
+  cache:
+    answer-ttl: 1h
+    key-version: v1
+  stampede:
+    lock-ttl: 10s
+    wait-timeout: 15s
+    poll-interval: 50ms
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
