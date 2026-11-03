@@ -47,6 +47,12 @@ public class ApiKey {
         this.keyHash = keyHash;
         this.keyPrefix = keyPrefix;
     }
+    
+    public void revoke() {
+        if (this.revokedAt == null) {
+            this.revokedAt = OffsetDateTime.now();
+        }
+    }
 
     public Long getId() { return id; }
     public Tenant getTenant() { return tenant; }

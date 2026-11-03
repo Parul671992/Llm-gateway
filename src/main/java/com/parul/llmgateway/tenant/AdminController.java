@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.bind.annotation.PathVariable;
 
 @RestController
 @RequestMapping("/admin/v1")
@@ -49,4 +50,21 @@ public class AdminController {
             @Size(max = 100, message = "name must be at most 100 characters")
             String name
     ) {}
+
+        @PostMapping("/tenants/{tenantId}/api-keys")
+    public ResponseEntity<ApiKeyService.IssuedKey> createKey(
+            @RequestHeader(value = "X-Admin-Token", required = false) String token,
+            @PathVariable Long tenantId) {
+        checkAdminToken(token);
+        return ResponseEntity.status(HttpStatus.CREATED).body(apiKeyService.createKeyForTenant(tenantId));
+    }
+
+    @PostMapping("/api-keys/{keyId}/revoke")
+    public ResponseEntity<Void> revokeKey(
+            @RequestHeader(value = "X-Admin-Token", required = false) String token,
+            @PathVariable Long keyId) {
+        checkAdminToken(token);
+        apiKeyService.revokeKey(keyId);
+        return ResponseEntity.noContent().build();
+    }
 }

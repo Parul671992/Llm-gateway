@@ -5,8 +5,10 @@ import java.util.Base64;
 import java.util.Optional;
 
 import com.parul.llmgateway.Hashing;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class ApiKeyService {
@@ -25,12 +27,22 @@ public class ApiKeyService {
     @Transactional
     public CreatedTenant createTenantWithKey(String tenantName) {
         Tenant tenant = tenantRepository.save(new Tenant(tenantName));
+        IssuedKey issued = issueKey(tenant);
+        return new CreatedTenant(tenant.getId(), tenant.getName(), issued.keyId(), issued.plainKey());
+    }
 
-        String plainKey = generateKey();
-        String displayPrefix = plainKey.substring(0, 12);
-        apiKeyRepository.save(new ApiKey(tenant, Hashing.sha256(plainKey), displayPrefix));
+    @Transactional
+    public IssuedKey createKeyForTenant(Long tenantId) {
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tenant not found"));
+        return issueKey(tenant);
+    }
 
-        return new CreatedTenant(tenant.getId(), tenant.getName(), plainKey);
+    @Transactional
+    public void revokeKey(Long keyId) {
+        ApiKey apiKey = apiKeyRepository.findById(keyId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "API key not found"));
+        apiKey.revoke();
     }
 
     @Transactional(readOnly = true)
@@ -39,11 +51,20 @@ public class ApiKeyService {
                 .map(apiKey -> apiKey.getTenant().getId());
     }
 
+    private IssuedKey issueKey(Tenant tenant) {
+        String plainKey = generateKey();
+        ApiKey saved = apiKeyRepository.save(
+                new ApiKey(tenant, Hashing.sha256(plainKey), plainKey.substring(0, 12)));
+        return new IssuedKey(saved.getId(), tenant.getId(), plainKey);
+    }
+
     private static String generateKey() {
         byte[] randomBytes = new byte[32];
         RANDOM.nextBytes(randomBytes);
         return KEY_PREFIX + Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
     }
 
-    public record CreatedTenant(Long tenantId, String name, String apiKey) {}
+    public record CreatedTenant(Long tenantId, String name, Long keyId, String apiKey) {}
+
+    public record IssuedKey(Long keyId, Long tenantId, String plainKey) {}
 }
