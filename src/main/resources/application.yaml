@@ -31,6 +31,8 @@ gateway:
     lock-ttl: 10s
     wait-timeout: 15s
     poll-interval: 50ms
+  admin:
+    token: ${ADMIN_TOKEN}
 
 
 management:

@@ -73,4 +73,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setTitle("AI provider unavailable");
         return problem;
     }
+
+    // 5. Database refused a duplicate (for example, a tenant name that already exists)
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ProblemDetail handleConflict(org.springframework.dao.DataIntegrityViolationException ex) {
+        log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.CONFLICT, "A resource with these details already exists");
+        problem.setTitle("Conflict");
+        return problem;
+    }
 }
