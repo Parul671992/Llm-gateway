@@ -9,6 +9,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.Optional;
+
+import com.parul.llmgateway.tenant.ApiKeyService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -27,6 +31,15 @@ class AskControllerTest {
     @MockitoBean
     AskService askService;
 
+    @MockitoBean
+    ApiKeyService apiKeyService;
+
+    @BeforeEach
+    void setUp() {
+        // The fake key "test-key" belongs to tenant 1
+        when(apiKeyService.findTenantIdForKey("test-key")).thenReturn(Optional.of(1L));
+    }
+
     @Test
     void validQuestion_returnsAnswer() throws Exception {
         when(askService.ask("What is Redis?"))
@@ -34,6 +47,7 @@ class AskControllerTest {
 
         mockMvc.perform(post("/v1/ask")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .header("X-API-Key", "test-key")
                         .content("{\"question\":\"What is Redis?\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answer").value("Redis is an in-memory store."))
@@ -44,6 +58,7 @@ class AskControllerTest {
     void emptyQuestion_returns400ProblemDetail() throws Exception {
         mockMvc.perform(post("/v1/ask")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .header("X-API-Key", "test-key")
                         .content("{\"question\":\"\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
@@ -59,6 +74,7 @@ class AskControllerTest {
 
         mockMvc.perform(post("/v1/ask")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .header("X-API-Key", "test-key")
                         .content("{\"question\":\"" + longQuestion + "\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value("question must be at most 2000 characters"));
@@ -68,6 +84,7 @@ class AskControllerTest {
     void malformedJson_returns400() throws Exception {
         mockMvc.perform(post("/v1/ask")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .header("X-API-Key", "test-key")
                         .content("{\"question\":\"hi\""))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Malformed request"));
@@ -80,8 +97,20 @@ class AskControllerTest {
 
         mockMvc.perform(post("/v1/ask")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .header("X-API-Key", "test-key")
                         .content("{\"question\":\"What is Redis?\"}"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.title").value("AI provider rate limited"));
+    }
+
+    @Test
+    void missingApiKey_returns401() throws Exception {
+        mockMvc.perform(post("/v1/ask")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"What is Redis?\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.detail").value("Missing API key"));
+
+        verify(askService, never()).ask(anyString());
     }
 }
