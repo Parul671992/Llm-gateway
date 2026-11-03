@@ -7,6 +7,14 @@ spring:
       port: 6379
       timeout: 2s
       connect-timeout: 2s
+  datasource:
+    url: jdbc:postgresql://host.docker.internal:5432/llmgateway
+    username: gateway
+    password: ${POSTGRES_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
 
 groq:
   api-key: ${GROQ_API_KEY}

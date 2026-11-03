@@ -17,20 +17,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import org.springframework.context.annotation.Import;
 
-@SpringBootTest(properties = "groq.api-key=test-key")
-@Testcontainers
+@SpringBootTest(properties = {"groq.api-key=test-key", "POSTGRES_PASSWORD=unused"})
+@Import(TestcontainersConfig.class)
 class AskServiceIntegrationTest {
 
-    @Container
-    @ServiceConnection(name = "redis")
-    static GenericContainer<?> redisContainer = new GenericContainer<>("redis:8").withExposedPorts(6379);
 
     @MockitoBean
     GroqClient groqClient;

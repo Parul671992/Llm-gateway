@@ -4,3 +4,17 @@ services:
     command: ["redis-server", "--maxmemory", "100mb", "--maxmemory-policy", "allkeys-lfu"]
     ports:
       - "6379:6379"
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: llmgateway
+      POSTGRES_USER: gateway
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
