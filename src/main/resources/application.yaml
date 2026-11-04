@@ -33,6 +33,8 @@ gateway:
     poll-interval: 50ms
   admin:
     token: ${ADMIN_TOKEN}
+  auth:
+    key-cache-ttl: 5m
 
 
 management:

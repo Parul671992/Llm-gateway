@@ -38,6 +38,7 @@ public class ApiKey {
 
     @Column(name = "revoked_at")
     private OffsetDateTime revokedAt;
+    
 
     protected ApiKey() {
     }
@@ -58,4 +59,5 @@ public class ApiKey {
     public Tenant getTenant() { return tenant; }
     public String getKeyPrefix() { return keyPrefix; }
     public OffsetDateTime getRevokedAt() { return revokedAt; }
+    public String getKeyHash() { return keyHash; }
 }
