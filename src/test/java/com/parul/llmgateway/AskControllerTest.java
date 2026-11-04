@@ -1,5 +1,6 @@
 package com.parul.llmgateway;
 
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -11,24 +12,25 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.Optional;
 
+import com.parul.llmgateway.tenant.AdminAuthFilter;
 import com.parul.llmgateway.tenant.ApiKeyService;
+import com.parul.llmgateway.tenant.RateLimitFilter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.HttpClientErrorException;
 
-import com.parul.llmgateway.tenant.RateLimitFilter;
-import org.springframework.context.annotation.ComponentScan;
-import org.springframework.context.annotation.FilterType;
-
 @WebMvcTest(
         controllers = AskController.class,
-        excludeFilters = @ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE, classes = RateLimitFilter.class))
+        excludeFilters = @ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE,
+                classes = {RateLimitFilter.class, AdminAuthFilter.class}))
 class AskControllerTest {
 
     @Autowired
@@ -42,13 +44,12 @@ class AskControllerTest {
 
     @BeforeEach
     void setUp() {
-        // The fake key "test-key" belongs to tenant 1
         when(apiKeyService.findTenantIdForKey("test-key")).thenReturn(Optional.of(1L));
     }
 
     @Test
     void validQuestion_returnsAnswer() throws Exception {
-        when(askService.ask("What is Redis?"))
+        when(askService.ask(1L, "What is Redis?"))
                 .thenReturn(new AskService.AskResult("Redis is an in-memory store.", "cache"));
 
         mockMvc.perform(post("/v1/ask")
@@ -71,7 +72,7 @@ class AskControllerTest {
                 .andExpect(jsonPath("$.title").value("Validation failed"))
                 .andExpect(jsonPath("$.detail").value("question must not be empty"));
 
-        verify(askService, never()).ask(anyString());
+        verify(askService, never()).ask(anyLong(), anyString());
     }
 
     @Test
@@ -98,7 +99,7 @@ class AskControllerTest {
 
     @Test
     void aiProviderRateLimited_returns503() throws Exception {
-        when(askService.ask(anyString()))
+        when(askService.ask(anyLong(), anyString()))
                 .thenThrow(new HttpClientErrorException(HttpStatus.TOO_MANY_REQUESTS));
 
         mockMvc.perform(post("/v1/ask")
@@ -117,6 +118,6 @@ class AskControllerTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.detail").value("Missing API key"));
 
-        verify(askService, never()).ask(anyString());
+        verify(askService, never()).ask(anyLong(), anyString());
     }
 }

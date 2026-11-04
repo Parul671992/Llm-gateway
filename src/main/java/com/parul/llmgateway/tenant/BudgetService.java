@@ -67,10 +67,11 @@ public class BudgetService {
         }
     }
 
-    private void writeCache(Long tenantId, BigDecimal budget) {
+       private void writeCache(Long tenantId, BigDecimal budget) {
         try {
             redis.opsForValue().set("budget:" + tenantId, budget.toPlainString(), BUDGET_CACHE_TTL);
-        } } catch (DataAccessException ex) {
+        } catch (DataAccessException ex) {
             log.warn("Budget cache write failed: {}", ex.getMessage());
         }
+    }
 }

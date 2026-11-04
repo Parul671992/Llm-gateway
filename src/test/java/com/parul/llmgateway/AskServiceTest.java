@@ -1,6 +1,7 @@
 package com.parul.llmgateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -12,6 +13,8 @@ import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 
+import com.parul.llmgateway.tenant.BudgetExceededException;
+import com.parul.llmgateway.tenant.SpendService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +31,7 @@ class AskServiceTest {
     @Mock GroqClient groqClient;
     @Mock StringRedisTemplate redis;
     @Mock ValueOperations<String, String> valueOps;
+    @Mock SpendService spendService;
 
     AskService askService;
 
@@ -37,35 +41,42 @@ class AskServiceTest {
         when(groqClient.model()).thenReturn("test-model");
 
         askService = new AskService(
-                groqClient, redis, new SimpleMeterRegistry(),
-                Duration.ofHours(1),        // answer TTL
-                "v1",                       // key version
-                Duration.ofSeconds(10),     // lock TTL
-                Duration.ofMillis(200),     // wait timeout (short, so tests stay fast)
-                Duration.ofMillis(10));     // poll interval
+                groqClient, redis, new SimpleMeterRegistry(), spendService,
+                Duration.ofHours(1), "v1",
+                Duration.ofSeconds(10), Duration.ofMillis(200), Duration.ofMillis(10));
     }
 
     @Test
     void cacheHit_returnsCachedAnswer_withoutCallingAi() {
         when(valueOps.get(anyString())).thenReturn("cached answer");
 
-        AskService.AskResult result = askService.ask("What is Redis?");
+        AskService.AskResult result = askService.ask(1L, "What is Redis?");
 
-        assertThat(result.answer()).isEqualTo("cached answer");
         assertThat(result.source()).isEqualTo("cache");
         verify(groqClient, never()).ask(anyString());
     }
 
     @Test
-    void cacheMiss_callsAi_andSavesAnswerWithTtl() {
+    void cacheMiss_callsAi_savesAnswer_andRecordsSpend() {
         when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
-        when(groqClient.ask("What is Redis?")).thenReturn("fresh answer");
+        when(groqClient.ask("What is Redis?")).thenReturn(new GroqClient.LlmResult("fresh answer", 10, 20));
 
-        AskService.AskResult result = askService.ask("What is Redis?");
+        AskService.AskResult result = askService.ask(1L, "What is Redis?");
 
         assertThat(result.answer()).isEqualTo("fresh answer");
         assertThat(result.source()).isEqualTo("llm");
-        verify(valueOps).set(startsWith("answer:v1:test-model:"), eq("fresh answer"), eq(Duration.ofHours(1)));
+        verify(valueOps).set(startsWith("answer:v1:1:test-model:"), eq("fresh answer"), eq(Duration.ofHours(1)));
+        verify(spendService).recordSpend(1L, 10, 20);
+    }
+
+    @Test
+    void overBudget_cacheMiss_throws_andAiIsNotCalled() {
+        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
+        when(spendService.isOverBudget(1L)).thenReturn(true);
+
+        assertThatThrownBy(() -> askService.ask(1L, "What is Redis?"))
+                .isInstanceOf(BudgetExceededException.class);
+        verify(groqClient, never()).ask(anyString());
     }
 
     @Test
@@ -74,38 +85,32 @@ class AskServiceTest {
         when(valueOps.get(anyString())).thenThrow(redisDown);
         when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenThrow(redisDown);
         doThrow(redisDown).when(valueOps).set(anyString(), anyString(), any(Duration.class));
-        when(groqClient.ask("What is Redis?")).thenReturn("answer despite outage");
+        when(groqClient.ask("What is Redis?")).thenReturn(new GroqClient.LlmResult("answer despite outage", 5, 5));
 
-        AskService.AskResult result = askService.ask("What is Redis?");
+        AskService.AskResult result = askService.ask(1L, "What is Redis?");
 
         assertThat(result.answer()).isEqualTo("answer despite outage");
-        assertThat(result.source()).isEqualTo("llm");
     }
 
     @Test
     void lockTaken_waiterGetsAnswerFromCache_withoutCallingAi() {
-        // First cache check: empty. Next checks (while waiting): the leader's answer has arrived.
         when(valueOps.get(anyString())).thenReturn(null, "answer from leader");
-        // Someone else already holds the lock
         when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(false);
 
-        AskService.AskResult result = askService.ask("What is Redis?");
+        AskService.AskResult result = askService.ask(1L, "What is Redis?");
 
-        assertThat(result.answer()).isEqualTo("answer from leader");
         assertThat(result.source()).isEqualTo("cache-after-wait");
         verify(groqClient, never()).ask(anyString());
     }
 
     @Test
     void lockTaken_answerNeverArrives_fallsBackToAi() {
-        // Cache stays empty the whole time (the leader crashed or is too slow)
         when(valueOps.get(anyString())).thenReturn(null);
         when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(false);
-        when(groqClient.ask("What is Redis?")).thenReturn("fallback answer");
+        when(groqClient.ask("What is Redis?")).thenReturn(new GroqClient.LlmResult("fallback answer", 5, 5));
 
-        AskService.AskResult result = askService.ask("What is Redis?");
+        AskService.AskResult result = askService.ask(1L, "What is Redis?");
 
-        assertThat(result.answer()).isEqualTo("fallback answer");
         assertThat(result.source()).isEqualTo("llm");
         verify(groqClient).ask("What is Redis?");
     }

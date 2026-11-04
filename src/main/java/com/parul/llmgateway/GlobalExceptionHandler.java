@@ -83,4 +83,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setTitle("Conflict");
         return problem;
     }
+
+    // 6. Tenant used up its monthly AI budget
+    @ExceptionHandler(com.parul.llmgateway.tenant.BudgetExceededException.class)
+    public ProblemDetail handleBudgetExceeded(com.parul.llmgateway.tenant.BudgetExceededException ex) {
+        log.info(ex.getMessage());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.PAYMENT_REQUIRED, "Monthly AI budget used up. Cached answers are still available.");
+        problem.setTitle("Budget exceeded");
+        return problem;
+    }
 }

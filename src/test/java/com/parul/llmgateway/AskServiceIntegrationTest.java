@@ -8,74 +8,72 @@ import static org.mockito.Mockito.when;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+import com.parul.llmgateway.tenant.SpendService;
+import com.parul.llmgateway.tenant.Tenant;
+import com.parul.llmgateway.tenant.TenantRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.context.annotation.Import;
 
 @SpringBootTest(properties = {"groq.api-key=test-key", "POSTGRES_PASSWORD=unused", "ADMIN_TOKEN=test-admin-token"})
 @Import(TestcontainersConfig.class)
 class AskServiceIntegrationTest {
 
+    @MockitoBean GroqClient groqClient;
+    @Autowired AskService askService;
+    @Autowired SpendService spendService;
+    @Autowired TenantRepository tenantRepository;
+    @Autowired StringRedisTemplate redis;
 
-    @MockitoBean
-    GroqClient groqClient;
-
-    @Autowired
-    AskService askService;
-
-    @Autowired
-    StringRedisTemplate redis;
+    Long tenantId;
 
     @BeforeEach
     void setUp() {
         redis.delete(redis.keys("*"));
         when(groqClient.model()).thenReturn("test-model");
+        tenantId = tenantRepository.save(new Tenant("tenant-" + UUID.randomUUID())).getId();
     }
 
     @Test
-    void secondRequest_isServedFromRealRedis_withTtl() {
-        when(groqClient.ask("What is Redis?")).thenReturn("real answer");
+    void secondRequest_isServedFromCache_andSpendIsRecorded() {
+        when(groqClient.ask("What is Redis?")).thenReturn(new GroqClient.LlmResult("real answer", 100, 200));
 
-        AskService.AskResult first = askService.ask("What is Redis?");
-        AskService.AskResult second = askService.ask("What is Redis?");
-
-        assertThat(first.source()).isEqualTo("llm");
-        assertThat(second.source()).isEqualTo("cache");
+        assertThat(askService.ask(tenantId, "What is Redis?").source()).isEqualTo("llm");
+        assertThat(askService.ask(tenantId, "What is Redis?").source()).isEqualTo("cache");
         verify(groqClient, times(1)).ask(anyString());
 
-        String key = redis.keys("answer:v1:test-model:*").iterator().next();
-        assertThat(redis.getExpire(key)).isPositive();
+        // 100 input × 75,000 + 200 output × 300,000, per million tokens, rounded up = 68 micros
+        assertThat(spendService.getSpentMicros(tenantId)).isEqualTo(68);
     }
 
     @Test
     void concurrentIdenticalRequests_callAiOnlyOnce_andLockIsReleased() throws Exception {
         when(groqClient.ask(anyString())).thenAnswer(invocation -> {
-            Thread.sleep(300);              // pretend the AI takes 300ms
-            return "shared answer";
+            Thread.sleep(300);
+            return new GroqClient.LlmResult("shared answer", 10, 10);
         });
 
         int threads = 10;
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         CountDownLatch startLine = new CountDownLatch(1);
         List<Future<AskService.AskResult>> results = new ArrayList<>();
-
         for (int i = 0; i < threads; i++) {
             results.add(pool.submit(() -> {
                 startLine.await();
-                return askService.ask("Popular question");
+                return askService.ask(tenantId, "Popular question");
             }));
         }
-        startLine.countDown();              // everyone go!
-
+        startLine.countDown();
         for (Future<AskService.AskResult> result : results) {
             assertThat(result.get().answer()).isEqualTo("shared answer");
         }

@@ -14,6 +14,8 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
+import com.parul.llmgateway.tenant.SpendService;
+import com.parul.llmgateway.tenant.BudgetExceededException;
 
 @Service
 public class AskService {
@@ -31,6 +33,7 @@ public class AskService {
 
     private final GroqClient groqClient;
     private final StringRedisTemplate redis;
+    private final SpendService spendService;
     private final Duration answerTtl;
     private final String keyVersion;
     private final Duration lockTtl;
@@ -46,6 +49,7 @@ public class AskService {
     public AskService(GroqClient groqClient,
                       StringRedisTemplate redis,
                       MeterRegistry meterRegistry,
+                      SpendService spendService,
                       @Value("${gateway.cache.answer-ttl}") Duration answerTtl,
                       @Value("${gateway.cache.key-version}") String keyVersion,
                       @Value("${gateway.stampede.lock-ttl}") Duration lockTtl,
@@ -53,6 +57,7 @@ public class AskService {
                       @Value("${gateway.stampede.poll-interval}") Duration pollInterval) {
         this.groqClient = groqClient;
         this.redis = redis;
+        this.spendService = spendService;
         this.answerTtl = answerTtl;
         this.keyVersion = keyVersion;
         this.lockTtl = lockTtl;
@@ -76,8 +81,8 @@ public class AskService {
                 .register(meterRegistry);
     }
 
-    public AskResult ask(String question) {
-        String key = buildKey(question);
+    public AskResult ask(Long tenantId, String question) {
+        String key = buildKey(tenantId, question);
 
         // 1. Normal cache check
         String cached = readFromCache(key);
@@ -112,7 +117,7 @@ public class AskService {
             }
 
             // 5. Ask the AI and save the answer
-            String answer = llmTimer.record(() -> groqClient.ask(question));
+            String answer = callAi(tenantId, question);
             writeToCache(key, answer);
             return new AskResult(answer, "llm");
         } finally {
@@ -160,9 +165,18 @@ public class AskService {
         return null;
     }
 
-    private String buildKey(String question) {
+    private String callAi(Long tenantId, String question) {
+        if (spendService.isOverBudget(tenantId)) {
+            throw new BudgetExceededException(tenantId);
+        }
+        GroqClient.LlmResult result = llmTimer.record(() -> groqClient.ask(question));
+        spendService.recordSpend(tenantId, result.promptTokens(), result.completionTokens());
+        return result.content();
+    }
+
+    private String buildKey(Long tenantId, String question) {
         String normalized = question.trim().toLowerCase().replaceAll("\\s+", " ");
-        return "answer:" + keyVersion + ":" + groqClient.model() + ":" + Hashing.sha256(normalized);
+        return "answer:" + keyVersion + ":" + tenantId + ":" + groqClient.model() + ":" + Hashing.sha256(normalized);
     }
 
 

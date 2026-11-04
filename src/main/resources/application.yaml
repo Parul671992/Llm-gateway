@@ -22,6 +22,7 @@ groq:
   model: openai/gpt-oss-20b
   connect-timeout: 2s
   read-timeout: 30s
+  max-tokens: 1024
 
 gateway:
   cache:
@@ -37,6 +38,9 @@ gateway:
     key-cache-ttl: 5m
   rate-limit:
     requests-per-minute: 20
+  pricing:
+    input-micros-per-million-tokens: 75000
+    output-micros-per-million-tokens: 300000
 
 management:
   endpoints:
