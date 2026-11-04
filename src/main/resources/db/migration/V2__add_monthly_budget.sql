@@ -1,0 +1,2 @@
+ALTER TABLE tenants
+    ADD COLUMN monthly_budget_usd NUMERIC(10, 2) NOT NULL DEFAULT 10.00;

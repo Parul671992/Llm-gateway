@@ -71,6 +71,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
             return;
         }
+        if (count == null) {
+        chain.doFilter(request, response);
+        return;
+        }
 
         long remaining = Math.max(0, requestsPerMinute - count);
         response.setHeader("X-RateLimit-Limit", String.valueOf(requestsPerMinute));

@@ -17,16 +17,26 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.PathVariable;
 
+import java.math.BigDecimal;
+
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.NotNull;
+import org.springframework.web.bind.annotation.PutMapping;
+
 @RestController
 @RequestMapping("/admin/v1")
 public class AdminController {
 
     private final ApiKeyService apiKeyService;
+    private final BudgetService budgetService;
     private final byte[] adminToken;
 
     public AdminController(ApiKeyService apiKeyService,
+                           BudgetService budgetService,
                            @Value("${gateway.admin.token}") String adminToken) {
         this.apiKeyService = apiKeyService;
+        this.budgetService = budgetService;
         this.adminToken = adminToken.getBytes(StandardCharsets.UTF_8);
     }
 
@@ -67,4 +77,22 @@ public class AdminController {
         apiKeyService.revokeKey(keyId);
         return ResponseEntity.noContent().build();
     }
+
+    @PutMapping("/tenants/{tenantId}/budget")
+    public BudgetResponse setBudget(
+            @RequestHeader(value = "X-Admin-Token", required = false) String token,
+            @PathVariable Long tenantId,
+            @Valid @RequestBody BudgetRequest request) {
+        checkAdminToken(token);
+        return new BudgetResponse(tenantId, budgetService.setMonthlyBudget(tenantId, request.monthlyBudgetUsd()));
+    }
+
+    public record BudgetRequest(
+            @NotNull(message = "monthlyBudgetUsd is required")
+            @DecimalMin(value = "0.00", message = "monthlyBudgetUsd must not be negative")
+            @Digits(integer = 8, fraction = 2, message = "monthlyBudgetUsd must have at most 2 decimal places")
+            BigDecimal monthlyBudgetUsd
+    ) {}
+
+    public record BudgetResponse(Long tenantId, BigDecimal monthlyBudgetUsd) {}
 }
