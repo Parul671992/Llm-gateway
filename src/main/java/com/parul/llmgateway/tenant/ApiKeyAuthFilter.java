@@ -9,8 +9,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.core.annotation.Order;
 
 @Component
+@Order(1)
 public class ApiKeyAuthFilter extends OncePerRequestFilter {
 
     public static final String TENANT_ID_ATTRIBUTE = "tenantId";

@@ -35,7 +35,8 @@ gateway:
     token: ${ADMIN_TOKEN}
   auth:
     key-cache-ttl: 5m
-
+  rate-limit:
+    requests-per-minute: 20
 
 management:
   endpoints:
