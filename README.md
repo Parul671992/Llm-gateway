@@ -1,5 +1,7 @@
 # Multi-Tenant LLM Gateway
 
+**[Read the case study](https://parul671992.github.io/llm-gateway/)**
+
 A gateway that sits between apps and LLM providers, so each customer's AI usage stays fast, affordable and within budget, even when a provider goes down.
 
 Built with Java 21, Spring Boot, Redis, PostgreSQL and Docker.
