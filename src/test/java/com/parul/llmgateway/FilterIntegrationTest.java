@@ -23,8 +23,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
-@SpringBootTest(properties = {
-        "groq.api-key=test-key", "POSTGRES_PASSWORD=unused", "ADMIN_TOKEN=test-admin-token",
+@SpringBootTest(properties = {"GROQ_API_KEY=test-key", "GEMINI_API_KEY=test-key",
+        "POSTGRES_PASSWORD=unused", "ADMIN_TOKEN=test-admin-token",
         "gateway.rate-limit.requests-per-minute=3"})
 @AutoConfigureMockMvc
 @Import(TestcontainersConfig.class)
@@ -63,7 +63,7 @@ class FilterIntegrationTest {
 
     @Test
     void revokedKey_isRejectedImmediately_evenAfterBeingCached() throws Exception {
-        ask(tenant.apiKey()).andExpect(status().isOk());       // key is now cached in Redis
+        ask(tenant.apiKey()).andExpect(status().isOk());
 
         apiKeyService.revokeKey(tenant.keyId());
 

@@ -6,7 +6,6 @@ import java.time.ZoneOffset;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -21,29 +20,15 @@ public class SpendService {
     private final JdbcClient jdbcClient;
     private final StringRedisTemplate redis;
     private final BudgetService budgetService;
-    private final long inputMicrosPerMillion;
-    private final long outputMicrosPerMillion;
 
-    public SpendService(JdbcClient jdbcClient,
-                        StringRedisTemplate redis,
-                        BudgetService budgetService,
-                        @Value("${gateway.pricing.input-micros-per-million-tokens}") long inputMicrosPerMillion,
-                        @Value("${gateway.pricing.output-micros-per-million-tokens}") long outputMicrosPerMillion) {
+    public SpendService(JdbcClient jdbcClient, StringRedisTemplate redis, BudgetService budgetService) {
         this.jdbcClient = jdbcClient;
         this.redis = redis;
         this.budgetService = budgetService;
-        this.inputMicrosPerMillion = inputMicrosPerMillion;
-        this.outputMicrosPerMillion = outputMicrosPerMillion;
     }
 
-    public long costMicros(int promptTokens, int completionTokens) {
-        long total = promptTokens * inputMicrosPerMillion + completionTokens * outputMicrosPerMillion;
-        return (total + 999_999) / 1_000_000;   // round UP, never undercharge
-    }
-
-    // Write-through again: add to PostgreSQL (the truth), then copy the new total into Redis
-    public void recordSpend(Long tenantId, int promptTokens, int completionTokens) {
-        long cost = costMicros(promptTokens, completionTokens);
+    // Write-through: add to PostgreSQL (the truth), then copy the new total into Redis
+    public void recordSpend(Long tenantId, long cost) {
         String month = currentMonth();
 
         Long newTotal = jdbcClient.sql("""

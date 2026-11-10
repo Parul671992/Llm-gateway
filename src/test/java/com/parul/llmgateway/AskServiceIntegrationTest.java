@@ -14,6 +14,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+import com.parul.llmgateway.llm.LlmResult;
+import com.parul.llmgateway.llm.LlmRouter;
 import com.parul.llmgateway.tenant.SpendService;
 import com.parul.llmgateway.tenant.Tenant;
 import com.parul.llmgateway.tenant.TenantRepository;
@@ -25,11 +27,12 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-@SpringBootTest(properties = {"groq.api-key=test-key", "POSTGRES_PASSWORD=unused", "ADMIN_TOKEN=test-admin-token"})
+@SpringBootTest(properties = {"GROQ_API_KEY=test-key", "GEMINI_API_KEY=test-key",
+        "POSTGRES_PASSWORD=unused", "ADMIN_TOKEN=test-admin-token"})
 @Import(TestcontainersConfig.class)
 class AskServiceIntegrationTest {
 
-    @MockitoBean GroqClient groqClient;
+    @MockitoBean LlmRouter llmRouter;
     @Autowired AskService askService;
     @Autowired SpendService spendService;
     @Autowired TenantRepository tenantRepository;
@@ -40,27 +43,26 @@ class AskServiceIntegrationTest {
     @BeforeEach
     void setUp() {
         redis.delete(redis.keys("*"));
-        when(groqClient.model()).thenReturn("test-model");
+        when(llmRouter.primaryModel()).thenReturn("test-model");
         tenantId = tenantRepository.save(new Tenant("tenant-" + UUID.randomUUID())).getId();
     }
 
     @Test
     void secondRequest_isServedFromCache_andSpendIsRecorded() {
-        when(groqClient.ask("What is Redis?")).thenReturn(new GroqClient.LlmResult("real answer", 100, 200));
+        when(llmRouter.ask("What is Redis?")).thenReturn(new LlmResult("real answer", "groq", 68));
 
         assertThat(askService.ask(tenantId, "What is Redis?").source()).isEqualTo("llm");
         assertThat(askService.ask(tenantId, "What is Redis?").source()).isEqualTo("cache");
-        verify(groqClient, times(1)).ask(anyString());
+        verify(llmRouter, times(1)).ask(anyString());
 
-        // 100 input × 75,000 + 200 output × 300,000, per million tokens, rounded up = 68 micros
         assertThat(spendService.getSpentMicros(tenantId)).isEqualTo(68);
     }
 
     @Test
     void concurrentIdenticalRequests_callAiOnlyOnce_andLockIsReleased() throws Exception {
-        when(groqClient.ask(anyString())).thenAnswer(invocation -> {
+        when(llmRouter.ask(anyString())).thenAnswer(invocation -> {
             Thread.sleep(300);
-            return new GroqClient.LlmResult("shared answer", 10, 10);
+            return new LlmResult("shared answer", "groq", 1);
         });
 
         int threads = 10;
@@ -79,7 +81,7 @@ class AskServiceIntegrationTest {
         }
         pool.shutdown();
 
-        verify(groqClient, times(1)).ask(anyString());
+        verify(llmRouter, times(1)).ask(anyString());
         assertThat(redis.keys("lock:*")).isEmpty();
     }
 }

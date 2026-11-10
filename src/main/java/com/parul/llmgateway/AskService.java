@@ -4,6 +4,10 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
+import com.parul.llmgateway.llm.LlmResult;
+import com.parul.llmgateway.llm.LlmRouter;
+import com.parul.llmgateway.tenant.BudgetExceededException;
+import com.parul.llmgateway.tenant.SpendService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -14,8 +18,6 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
-import com.parul.llmgateway.tenant.SpendService;
-import com.parul.llmgateway.tenant.BudgetExceededException;
 
 @Service
 public class AskService {
@@ -31,7 +33,7 @@ public class AskService {
 
     private enum LockResult { ACQUIRED, TAKEN, UNAVAILABLE }
 
-    private final GroqClient groqClient;
+    private final LlmRouter llmRouter;
     private final StringRedisTemplate redis;
     private final SpendService spendService;
     private final Duration answerTtl;
@@ -46,7 +48,7 @@ public class AskService {
     private final Counter stampedeWaits;
     private final Timer llmTimer;
 
-    public AskService(GroqClient groqClient,
+    public AskService(LlmRouter llmRouter,
                       StringRedisTemplate redis,
                       MeterRegistry meterRegistry,
                       SpendService spendService,
@@ -55,7 +57,7 @@ public class AskService {
                       @Value("${gateway.stampede.lock-ttl}") Duration lockTtl,
                       @Value("${gateway.stampede.wait-timeout}") Duration waitTimeout,
                       @Value("${gateway.stampede.poll-interval}") Duration pollInterval) {
-        this.groqClient = groqClient;
+        this.llmRouter = llmRouter;
         this.redis = redis;
         this.spendService = spendService;
         this.answerTtl = answerTtl;
@@ -128,6 +130,20 @@ public class AskService {
         }
     }
 
+    private String callAi(Long tenantId, String question) {
+        if (spendService.isOverBudget(tenantId)) {
+            throw new BudgetExceededException(tenantId);
+        }
+        LlmResult result = llmTimer.record(() -> llmRouter.ask(question));
+        spendService.recordSpend(tenantId, result.costMicros());
+        return result.content();
+    }
+
+    private String buildKey(Long tenantId, String question) {
+        String normalized = question.trim().toLowerCase().replaceAll("\\s+", " ");
+        return "answer:" + keyVersion + ":" + tenantId + ":" + llmRouter.primaryModel() + ":" + Hashing.sha256(normalized);
+    }
+
     private LockResult tryAcquireLock(String lockKey, String token) {
         try {
             Boolean acquired = redis.opsForValue().setIfAbsent(lockKey, token, lockTtl);
@@ -164,21 +180,6 @@ public class AskService {
         }
         return null;
     }
-
-    private String callAi(Long tenantId, String question) {
-        if (spendService.isOverBudget(tenantId)) {
-            throw new BudgetExceededException(tenantId);
-        }
-        GroqClient.LlmResult result = llmTimer.record(() -> groqClient.ask(question));
-        spendService.recordSpend(tenantId, result.promptTokens(), result.completionTokens());
-        return result.content();
-    }
-
-    private String buildKey(Long tenantId, String question) {
-        String normalized = question.trim().toLowerCase().replaceAll("\\s+", " ");
-        return "answer:" + keyVersion + ":" + tenantId + ":" + groqClient.model() + ":" + Hashing.sha256(normalized);
-    }
-
 
     private String readFromCache(String key) {
         try {

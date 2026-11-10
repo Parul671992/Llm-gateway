@@ -13,6 +13,8 @@ import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 
+import com.parul.llmgateway.llm.LlmResult;
+import com.parul.llmgateway.llm.LlmRouter;
 import com.parul.llmgateway.tenant.BudgetExceededException;
 import com.parul.llmgateway.tenant.SpendService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -28,7 +30,7 @@ import org.springframework.data.redis.core.ValueOperations;
 @ExtendWith(MockitoExtension.class)
 class AskServiceTest {
 
-    @Mock GroqClient groqClient;
+    @Mock LlmRouter llmRouter;
     @Mock StringRedisTemplate redis;
     @Mock ValueOperations<String, String> valueOps;
     @Mock SpendService spendService;
@@ -38,10 +40,10 @@ class AskServiceTest {
     @BeforeEach
     void setUp() {
         when(redis.opsForValue()).thenReturn(valueOps);
-        when(groqClient.model()).thenReturn("test-model");
+        when(llmRouter.primaryModel()).thenReturn("test-model");
 
         askService = new AskService(
-                groqClient, redis, new SimpleMeterRegistry(), spendService,
+                llmRouter, redis, new SimpleMeterRegistry(), spendService,
                 Duration.ofHours(1), "v1",
                 Duration.ofSeconds(10), Duration.ofMillis(200), Duration.ofMillis(10));
     }
@@ -50,23 +52,20 @@ class AskServiceTest {
     void cacheHit_returnsCachedAnswer_withoutCallingAi() {
         when(valueOps.get(anyString())).thenReturn("cached answer");
 
-        AskService.AskResult result = askService.ask(1L, "What is Redis?");
-
-        assertThat(result.source()).isEqualTo("cache");
-        verify(groqClient, never()).ask(anyString());
+        assertThat(askService.ask(1L, "What is Redis?").source()).isEqualTo("cache");
+        verify(llmRouter, never()).ask(anyString());
     }
 
     @Test
     void cacheMiss_callsAi_savesAnswer_andRecordsSpend() {
         when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
-        when(groqClient.ask("What is Redis?")).thenReturn(new GroqClient.LlmResult("fresh answer", 10, 20));
+        when(llmRouter.ask("What is Redis?")).thenReturn(new LlmResult("fresh answer", "groq", 68));
 
         AskService.AskResult result = askService.ask(1L, "What is Redis?");
 
-        assertThat(result.answer()).isEqualTo("fresh answer");
         assertThat(result.source()).isEqualTo("llm");
         verify(valueOps).set(startsWith("answer:v1:1:test-model:"), eq("fresh answer"), eq(Duration.ofHours(1)));
-        verify(spendService).recordSpend(1L, 10, 20);
+        verify(spendService).recordSpend(1L, 68L);
     }
 
     @Test
@@ -76,7 +75,7 @@ class AskServiceTest {
 
         assertThatThrownBy(() -> askService.ask(1L, "What is Redis?"))
                 .isInstanceOf(BudgetExceededException.class);
-        verify(groqClient, never()).ask(anyString());
+        verify(llmRouter, never()).ask(anyString());
     }
 
     @Test
@@ -85,11 +84,9 @@ class AskServiceTest {
         when(valueOps.get(anyString())).thenThrow(redisDown);
         when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenThrow(redisDown);
         doThrow(redisDown).when(valueOps).set(anyString(), anyString(), any(Duration.class));
-        when(groqClient.ask("What is Redis?")).thenReturn(new GroqClient.LlmResult("answer despite outage", 5, 5));
+        when(llmRouter.ask("What is Redis?")).thenReturn(new LlmResult("answer despite outage", "groq", 1));
 
-        AskService.AskResult result = askService.ask(1L, "What is Redis?");
-
-        assertThat(result.answer()).isEqualTo("answer despite outage");
+        assertThat(askService.ask(1L, "What is Redis?").answer()).isEqualTo("answer despite outage");
     }
 
     @Test
@@ -97,21 +94,17 @@ class AskServiceTest {
         when(valueOps.get(anyString())).thenReturn(null, "answer from leader");
         when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(false);
 
-        AskService.AskResult result = askService.ask(1L, "What is Redis?");
-
-        assertThat(result.source()).isEqualTo("cache-after-wait");
-        verify(groqClient, never()).ask(anyString());
+        assertThat(askService.ask(1L, "What is Redis?").source()).isEqualTo("cache-after-wait");
+        verify(llmRouter, never()).ask(anyString());
     }
 
     @Test
     void lockTaken_answerNeverArrives_fallsBackToAi() {
         when(valueOps.get(anyString())).thenReturn(null);
         when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(false);
-        when(groqClient.ask("What is Redis?")).thenReturn(new GroqClient.LlmResult("fallback answer", 5, 5));
+        when(llmRouter.ask("What is Redis?")).thenReturn(new LlmResult("fallback answer", "groq", 1));
 
-        AskService.AskResult result = askService.ask(1L, "What is Redis?");
-
-        assertThat(result.source()).isEqualTo("llm");
-        verify(groqClient).ask("What is Redis?");
+        assertThat(askService.ask(1L, "What is Redis?").source()).isEqualTo("llm");
+        verify(llmRouter).ask("What is Redis?");
     }
 }

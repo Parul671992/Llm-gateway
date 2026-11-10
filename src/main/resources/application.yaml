@@ -16,13 +16,11 @@ spring:
       ddl-auto: validate
     open-in-view: false
 
-groq:
-  api-key: ${GROQ_API_KEY}
-  base-url: https://api.groq.com/openai/v1
-  model: openai/gpt-oss-20b
-  connect-timeout: 2s
-  read-timeout: 30s
-  max-tokens: 1024
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
 
 gateway:
   cache:
@@ -38,12 +36,31 @@ gateway:
     key-cache-ttl: 5m
   rate-limit:
     requests-per-minute: 20
-  pricing:
-    input-micros-per-million-tokens: 75000
-    output-micros-per-million-tokens: 300000
 
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,metrics
+llm:
+  primary:
+    name: groq
+    base-url: https://api.groq.com/openai/v1
+    api-key: ${GROQ_API_KEY}
+    model: openai/gpt-oss-20b
+    connect-timeout: 2s
+    read-timeout: 30s
+    max-tokens: 1024
+    input-micros-per-million: 75000
+    output-micros-per-million: 300000
+  fallback:
+    name: gemini
+    base-url: https://generativelanguage.googleapis.com/v1beta/openai
+    api-key: ${GEMINI_API_KEY}
+    model: gemini-3.5-flash-lite
+    connect-timeout: 2s
+    read-timeout: 30s
+    max-tokens: 1024
+    input-micros-per-million: 100000
+    output-micros-per-million: 400000
+  circuit-breaker:
+    failure-rate-threshold: 50
+    sliding-window-size: 10
+    minimum-number-of-calls: 5
+    wait-in-open-state: 30s
+    calls-in-half-open-state: 3
