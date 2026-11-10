@@ -1,10 +1,12 @@
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+import os
 
 import requests
 
 BASE_URL = "http://localhost:8080"
+API_KEY = os.environ["GATEWAY_API_KEY"]
 NUM_REQUESTS = 20
 # A new question every run, so it is never already cached
 QUESTION = f"In one sentence, what is a cache stampede? (test {int(time.time())})"
@@ -24,7 +26,7 @@ start_line = threading.Barrier(NUM_REQUESTS)
 def send_request(request_number):
     start_line.wait()
     start = time.time()
-    response = requests.post(f"{BASE_URL}/v1/ask", json={"question": QUESTION})
+    response = requests.post(f"{BASE_URL}/v1/ask", json={"question": QUESTION}, headers={"X-API-Key": API_KEY})
     time_ms = int((time.time() - start) * 1000)
     source = response.json().get("source") if response.ok else f"error {response.status_code}"
     return request_number, response.status_code, source, time_ms
