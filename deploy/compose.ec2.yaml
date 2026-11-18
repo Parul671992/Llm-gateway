@@ -1,0 +1,39 @@
+services:
+  redis:
+    image: redis:8
+    command: ["redis-server", "--maxmemory", "100mb", "--maxmemory-policy", "allkeys-lfu"]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: llmgateway
+      POSTGRES_USER: gateway
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway -d llmgateway"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    image: 029096972323.dkr.ecr.us-east-2.amazonaws.com/llm-gateway:v2
+    env_file: .env
+    environment:
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/llmgateway
+    ports:
+      - "8080:8080"
+    mem_limit: 768m
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  pgdata:
